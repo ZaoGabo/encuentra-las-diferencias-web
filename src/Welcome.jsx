@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import PropTypes from 'prop-types';
 import { Star, Gamepad, Image, Clock } from 'lucide-react';
 
 const GameCard = ({ id, title, desc, active = false, onClick, icon, selected, starting }) => {
@@ -23,12 +24,31 @@ const GameCard = ({ id, title, desc, active = false, onClick, icon, selected, st
         <button
           disabled={!isActive}
           className={`px-4 py-2 rounded-md font-semibold ${isActive ? 'bg-white text-purple-600' : 'bg-gray-100 text-gray-400 cursor-not-allowed'}`}
+          aria-disabled={!isActive}
         >
           {isActive ? 'Jugar' : 'Próximamente'}
         </button>
       </div>
     </div>
   );
+};
+
+GameCard.propTypes = {
+  id: PropTypes.string.isRequired,
+  title: PropTypes.string.isRequired,
+  desc: PropTypes.string.isRequired,
+  active: PropTypes.bool,
+  onClick: PropTypes.func,
+  icon: PropTypes.node.isRequired,
+  selected: PropTypes.string,
+  starting: PropTypes.bool,
+};
+
+GameCard.defaultProps = {
+  active: false,
+  onClick: undefined,
+  selected: null,
+  starting: false,
 };
 
 const Welcome = ({ onEnter, onStart }) => {
@@ -120,7 +140,7 @@ const Welcome = ({ onEnter, onStart }) => {
           <div className="flex flex-col gap-4">
             <div className={`rounded-2xl p-6 shadow-lg bg-white`}> 
               <h3 className="text-lg font-bold text-gray-800">Acerca de este juego</h3>
-              <p className="text-sm text-gray-600 mt-2">"Encuentra las Diferencias" es un juego casual para entrenar la observación. Esta versión está en desarrollo y se puede ejecutar localmente.</p>
+              <p className="text-sm text-gray-600 mt-2">&ldquo;Encuentra las Diferencias&rdquo; es un juego casual para entrenar la observación. Esta versión está en desarrollo y se puede ejecutar localmente.</p>
               <ul className="text-sm text-gray-600 mt-3 list-disc pl-5 space-y-1">
                 <li>Puntos por aciertos y por tiempo restante.</li>
                 <li>Modo edición solo visible en desarrollo para configurar niveles.</li>
@@ -141,6 +161,16 @@ const Welcome = ({ onEnter, onStart }) => {
       </div>
     </div>
   );
+};
+
+Welcome.propTypes = {
+  onEnter: PropTypes.func,
+  onStart: PropTypes.func,
+};
+
+Welcome.defaultProps = {
+  onEnter: undefined,
+  onStart: undefined,
 };
 
 export default Welcome;

@@ -5,39 +5,38 @@ import React, {
   useCallback,
   useRef
 } from 'react';
-import {
-  Trophy,
-  Star,
-  RefreshCw,
-  Zap,
-  Upload,
-  Download,
-  Clock3,
-  Info
-} from 'lucide-react';
+import { Trophy, Info } from 'lucide-react';
 import Welcome from './Welcome';
 import Modal from './components/Modal';
-import LevelSelector from './components/LevelSelector';
 import { HitMarker, WrongMarker } from './components/FeedbackMarker';
+import GameHeader from './components/GameHeader';
+import ImageCanvas from './components/ImageCanvas';
+import DifferencesPanel from './components/DifferencesPanel';
 import useDifferences from './hooks/useDifferences';
-
-const clampPercent = (value, min = 0, max = 100) => Math.min(Math.max(value, min), max);
-const formatTime = (seconds) => `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
-const isDev = import.meta.env.MODE !== 'production';
+import useLevels from './hooks/useLevels';
+import useCountdown from './hooks/useCountdown';
+import { clampPercent, formatTime, isDevMode } from './utils/gameUtils';
+import { readJsonFromStorage, writeJsonToStorage } from './utils/storage';
+import { DEFAULT_TIME_LIMIT, getDifferencesStorageKey } from './config/gameConfig';
+import { TEXT } from './config/textContent';
 
 const App = () => {
   const [showWelcomeScreen, setShowWelcomeScreen] = useState(true);
-  const [levels, setLevels] = useState([]);
-  const [currentLevelId, setCurrentLevelId] = useState('');
-  const [levelData, setLevelData] = useState(null);
-  const [loadingLevel, setLoadingLevel] = useState(false);
-  const [levelError, setLevelError] = useState(null);
+  const {
+    levels,
+    currentLevelId,
+    setCurrentLevelId,
+    levelData,
+    loadingLevel,
+    levelError,
+    reloadCurrentLevel,
+    overrideLevelData,
+  } = useLevels();
 
   const [differences, setDifferences] = useState([]);
   const [gameStarted, setGameStarted] = useState(false);
   const [showVictory, setShowVictory] = useState(false);
   const [showTimeoutModal, setShowTimeoutModal] = useState(false);
-  const [timeLeft, setTimeLeft] = useState(0);
 
   const [editMode, setEditMode] = useState(false);
   const [selectedDifferenceId, setSelectedDifferenceId] = useState(null);
@@ -45,8 +44,9 @@ const App = () => {
 
   const originalContainerRef = useRef(null);
   const modifiedContainerRef = useRef(null);
-  const importInputRef = useRef(null);
+  const saveDifferencesTimeoutRef = useRef(null);
 
+  const texts = TEXT;
   const scoringRules = useMemo(() => ({
     pointsPerHit: levelData?.pointsPerHit,
     penaltyPerMiss: levelData?.penaltyPerMiss,
@@ -69,12 +69,19 @@ const App = () => {
     [attempts, foundDifferences.length]
   );
 
-  const currentLevelMeta = useMemo(
-    () => levels.find(level => level.id === currentLevelId) ?? null,
-    [levels, currentLevelId]
-  );
+  const timeLimit = levelData?.timeLimit ?? DEFAULT_TIME_LIMIT;
 
-  const timeLimit = levelData?.timeLimit ?? 120;
+  const handleTimeout = useCallback(() => {
+    setShowTimeoutModal(true);
+    setGameStarted(false);
+  }, []);
+
+  const {
+    timeLeft,
+    start: startTimer,
+    pause: pauseTimer,
+    reset: resetTimer,
+  } = useCountdown(timeLimit, { onTimeout: handleTimeout });
 
   const nudgeDifference = useCallback((id, deltaX, deltaY) => {
     setDifferences(prev => prev.map(diff => (
@@ -88,78 +95,24 @@ const App = () => {
     )));
   }, []);
 
-  useEffect(() => {
-    const loadLevelIndex = async () => {
-      try {
-        const response = await fetch('/levels/index.json', { cache: 'no-cache' });
-        if (!response.ok) throw new Error('No se pudo cargar el índice de niveles');
-        const payload = await response.json();
-        const entries = payload?.levels ?? [];
-        setLevels(entries);
-        if (entries.length > 0) {
-          setCurrentLevelId(entries[0].id);
-        }
-      } catch (err) {
-        console.error(err);
-        setLevelError('No pudimos cargar la lista de niveles. Revisa public/levels/index.json.');
-      }
-    };
-
-    loadLevelIndex();
-  }, []);
-
-  useEffect(() => {
-    if (!currentLevelMeta) return;
-
-    const loadLevel = async () => {
-      setLoadingLevel(true);
-      setLevelError(null);
-      try {
-        const response = await fetch(`/levels/${currentLevelMeta.file}`, { cache: 'no-cache' });
-        if (!response.ok) throw new Error(`Archivo ${currentLevelMeta.file} no encontrado`);
-        const payload = await response.json();
-        setLevelData(payload);
-      } catch (err) {
-        console.error(err);
-        setLevelError('No pudimos cargar la configuración del nivel seleccionado.');
-      } finally {
-        setLoadingLevel(false);
-      }
-    };
-
-    loadLevel();
-  }, [currentLevelMeta]);
 
   useEffect(() => {
     if (!levelData) return;
     let nextDifferences = levelData.differences ?? [];
-    if (isDev && currentLevelId) {
-      try {
-        const stored = localStorage.getItem(`differences-${currentLevelId}`);
-        if (stored) nextDifferences = JSON.parse(stored);
-      } catch (err) {
-        console.warn('No se pudo leer differences desde localStorage', err);
+    if (isDevMode && currentLevelId) {
+      const stored = readJsonFromStorage(getDifferencesStorageKey(currentLevelId));
+      if (Array.isArray(stored)) {
+        nextDifferences = stored;
       }
     }
     setDifferences(nextDifferences);
-    setTimeLeft(levelData.timeLimit ?? 120);
+    resetTimer(timeLimit);
     resetTracking();
     setShowVictory(false);
     setShowTimeoutModal(false);
     setGameStarted(false);
     setSelectedDifferenceId(null);
-  }, [levelData, currentLevelId, resetTracking]);
-
-  useEffect(() => {
-    if (!gameStarted || showVictory || showTimeoutModal) return;
-    if (timeLeft <= 0) {
-      setShowTimeoutModal(true);
-      setGameStarted(false);
-      return;
-    }
-    const timer = setTimeout(() => setTimeLeft(prev => prev - 1), 1000);
-    return () => clearTimeout(timer);
-  }, [gameStarted, timeLeft, showVictory, showTimeoutModal]);
+  }, [currentLevelId, levelData, resetTimer, resetTracking, timeLimit]);
 
   useEffect(() => {
     if (!gameStarted) return;
@@ -167,8 +120,9 @@ const App = () => {
       applyBonus(timeLeft);
       setShowVictory(true);
       setGameStarted(false);
+      pauseTimer();
     }
-  }, [applyBonus, foundDifferences.length, gameStarted, timeLeft, totalDifferences]);
+  }, [applyBonus, foundDifferences.length, gameStarted, pauseTimer, timeLeft, totalDifferences]);
 
   useEffect(() => {
     if (!editMode || !selectedDifferenceId) return;
@@ -230,13 +184,31 @@ const App = () => {
     };
   }, [dragging]);
 
-  useEffect(() => {
-    if (!isDev || !currentLevelId) return;
-    try {
-      localStorage.setItem(`differences-${currentLevelId}`, JSON.stringify(differences));
-    } catch (err) {
-      console.warn('No se pudo guardar differences en localStorage', err);
+  useEffect(() => () => {
+    if (saveDifferencesTimeoutRef.current) {
+      clearTimeout(saveDifferencesTimeoutRef.current);
+      saveDifferencesTimeoutRef.current = null;
     }
+  }, []);
+
+  useEffect(() => {
+    if (!isDevMode || !currentLevelId) return undefined;
+
+    if (saveDifferencesTimeoutRef.current) {
+      clearTimeout(saveDifferencesTimeoutRef.current);
+    }
+
+    saveDifferencesTimeoutRef.current = setTimeout(() => {
+      writeJsonToStorage(getDifferencesStorageKey(currentLevelId), differences);
+      saveDifferencesTimeoutRef.current = null;
+    }, 200);
+
+    return () => {
+      if (saveDifferencesTimeoutRef.current) {
+        clearTimeout(saveDifferencesTimeoutRef.current);
+        saveDifferencesTimeoutRef.current = null;
+      }
+    };
   }, [differences, currentLevelId]);
 
   const toggleEditMode = () => {
@@ -356,7 +328,7 @@ const App = () => {
     setShowTimeoutModal(false);
     setShowVictory(false);
     resetTracking();
-    setTimeLeft(timeLimit);
+    startTimer(timeLimit);
     setGameStarted(true);
   };
 
@@ -364,7 +336,7 @@ const App = () => {
     resetTracking();
     setShowVictory(false);
     setShowTimeoutModal(false);
-    setTimeLeft(timeLimit);
+    resetTimer(timeLimit);
     setGameStarted(false);
     setSelectedDifferenceId(null);
     setDragging(null);
@@ -403,7 +375,7 @@ const App = () => {
         const payload = JSON.parse(loadEvent.target?.result ?? '{}');
         if (!Array.isArray(payload.differences)) throw new Error('El JSON debe incluir un arreglo "differences".');
         setDifferences(payload.differences);
-        setLevelData(prev => ({ ...prev, ...payload }));
+        overrideLevelData(prev => ({ ...prev, ...payload }));
       } catch (err) {
         console.error(err);
         alert('No se pudo importar el archivo. Comprueba que tenga el formato correcto.');
@@ -412,6 +384,10 @@ const App = () => {
       }
     };
     reader.readAsText(file);
+  };
+
+  const handleCopyDifference = (diff) => {
+    navigator.clipboard?.writeText(JSON.stringify(diff, null, 2));
   };
 
   const handleSizeInput = (id, key, value) => {
@@ -557,40 +533,40 @@ const App = () => {
 
       {levelError && (
         <Modal
-          title="Error al cargar"
+          title={texts.modals.loadError.title}
           description={levelError}
           tone="danger"
           actions={[
-            { label: 'Reintentar carga', variant: 'primary', onClick: () => currentLevelMeta && setCurrentLevelId(currentLevelMeta.id) }
+            { label: texts.modals.loadError.retry, variant: 'primary', onClick: reloadCurrentLevel }
           ]}
         />
       )}
 
       {showVictory && (
         <Modal
-          title="¡Nivel completado!"
+          title={texts.modals.victory.title}
           description={levelData?.description}
           tone="success"
           actions={[
-            { label: 'Jugar de nuevo', variant: 'secondary', onClick: resetGame },
-            { label: 'Siguiente nivel', variant: 'primary', onClick: goToNextLevel }
+            { label: texts.modals.victory.replay, variant: 'secondary', onClick: resetGame },
+            { label: texts.modals.victory.next, variant: 'primary', onClick: goToNextLevel }
           ]}
         >
           <div className="grid grid-cols-2 gap-4 text-center">
             <div className="rounded-2xl bg-emerald-100 p-4">
-              <div className="text-sm font-semibold text-emerald-600">Puntuación</div>
+              <div className="text-sm font-semibold text-emerald-600">{texts.scoreboard.score}</div>
               <div className="text-3xl font-bold text-emerald-700">{score}</div>
             </div>
             <div className="rounded-2xl bg-sky-100 p-4">
-              <div className="text-sm font-semibold text-sky-600">Tiempo restante</div>
+              <div className="text-sm font-semibold text-sky-600">{texts.scoreboard.remainingTime}</div>
               <div className="text-3xl font-bold text-sky-700">{formatTime(timeLeft)}</div>
             </div>
             <div className="rounded-2xl bg-purple-100 p-4">
-              <div className="text-sm font-semibold text-purple-600">Precisión</div>
+              <div className="text-sm font-semibold text-purple-600">{texts.scoreboard.accuracy}</div>
               <div className="text-3xl font-bold text-purple-700">{accuracy}%</div>
             </div>
             <div className="rounded-2xl bg-amber-100 p-4">
-              <div className="text-sm font-semibold text-amber-600">Intentos</div>
+              <div className="text-sm font-semibold text-amber-600">{texts.scoreboard.attempts}</div>
               <div className="text-3xl font-bold text-amber-700">{attempts}</div>
             </div>
           </div>
@@ -599,112 +575,52 @@ const App = () => {
 
       {showTimeoutModal && (
         <Modal
-          title="Tiempo agotado"
-          description="¡Casi lo logras! Revisa las pistas o intenta nuevamente."
+          title={texts.modals.timeout.title}
+          description={texts.modals.timeout.description}
           tone="danger"
           actions={[
-            { label: 'Ver pistas', variant: 'secondary', onClick: () => setShowTimeoutModal(false) },
-            { label: 'Intentar de nuevo', variant: 'primary', onClick: resetGame }
+            { label: texts.modals.timeout.viewHints, variant: 'secondary', onClick: () => setShowTimeoutModal(false) },
+            { label: texts.modals.timeout.retry, variant: 'primary', onClick: resetGame }
           ]}
         >
-          <p className="text-gray-600">Consejo: busca elementos que cambian ligeramente de color o posición.</p>
+          <p className="text-gray-600">{texts.modals.timeout.tip}</p>
         </Modal>
       )}
 
       <div className="mx-auto max-w-7xl space-y-6">
-        <div className="rounded-3xl bg-white/95 p-6 shadow-2xl backdrop-blur">
-          <div className="flex flex-wrap items-center justify-between gap-6">
-            <div>
-              <h1 className="flex items-center gap-3 text-4xl font-bold">
-                <Star className="h-10 w-10 text-yellow-500" />
-                Encuentra las Diferencias
-              </h1>
-              <p className="mt-2 text-gray-600">
-                {levelData?.name ?? 'Selecciona un nivel para comenzar'}
-              </p>
-            </div>
+        <GameHeader
+          levelName={levelData?.name}
+          levels={levels}
+          currentLevelId={currentLevelId}
+          onSelectLevel={setCurrentLevelId}
+          loadingLevel={loadingLevel}
+          score={score}
+          foundDifferencesCount={foundDifferences.length}
+          totalDifferences={totalDifferences}
+          formattedTime={formatTime(timeLeft)}
+          timeLeft={timeLeft}
+          gameStarted={gameStarted}
+          onResetGame={resetGame}
+          isDevMode={isDevMode}
+          editMode={editMode}
+          onToggleEditMode={toggleEditMode}
+          onExportLevel={exportLevel}
+          onImportLevel={importLevel}
+        />
 
-            <div className="flex flex-wrap items-center gap-4">
-              <LevelSelector
-                levels={levels}
-                currentLevelId={currentLevelId}
-                onSelect={setCurrentLevelId}
-                disabled={loadingLevel}
-              />
-
-              <div className="rounded-2xl bg-gradient-to-br from-purple-100 to-pink-100 px-5 py-3 text-center">
-                <div className="text-3xl font-bold text-purple-600">{score}</div>
-                <div className="text-xs font-semibold text-purple-500">Puntos</div>
-              </div>
-
-              <div className="rounded-2xl bg-gradient-to-br from-blue-100 to-cyan-100 px-5 py-3 text-center">
-                <div className="text-3xl font-bold text-blue-600">{foundDifferences.length}/{totalDifferences}</div>
-                <div className="text-xs font-semibold text-blue-500">Encontradas</div>
-              </div>
-
-              <div className={`rounded-2xl px-5 py-3 text-center ${timeLeft < 30 && gameStarted ? 'bg-rose-100 animate-pulse' : 'bg-gradient-to-br from-emerald-100 to-lime-100'}`}>
-                <div className={`text-3xl font-bold ${timeLeft < 30 && gameStarted ? 'text-rose-600' : 'text-emerald-600'}`}>
-                  {formatTime(timeLeft)}
-                </div>
-                <div className="flex items-center justify-center gap-2 text-xs font-semibold text-emerald-600">
-                  <Clock3 className="h-4 w-4" /> Tiempo
-                </div>
-              </div>
-
-              <button
-                onClick={resetGame}
-                className="flex items-center gap-2 rounded-xl bg-gradient-to-r from-rose-500 to-pink-600 px-5 py-3 font-semibold text-white shadow-lg transition hover:scale-105"
-              >
-                <RefreshCw size={18} /> Reiniciar
-              </button>
-
-              {isDev && (
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={toggleEditMode}
-                    className={`flex items-center gap-2 rounded-xl px-4 py-2 font-semibold transition ${editMode ? 'bg-orange-500 text-white shadow-lg' : 'bg-gray-100 text-gray-800 hover:bg-gray-200'}`}
-                    title="Alternar modo edición"
-                  >
-                    <Zap size={18} /> {editMode ? 'Edición activada' : 'Modo edición'}
-                  </button>
-
-                  <button
-                    onClick={exportLevel}
-                    className="flex items-center gap-2 rounded-xl bg-gray-100 px-4 py-2 font-semibold text-gray-700 hover:bg-gray-200"
-                  >
-                    <Download size={18} /> Exportar
-                  </button>
-
-                  <button
-                    onClick={() => importInputRef.current?.click()}
-                    className="flex items-center gap-2 rounded-xl bg-gray-100 px-4 py-2 font-semibold text-gray-700 hover:bg-gray-200"
-                  >
-                    <Upload size={18} /> Importar
-                  </button>
-                  <input
-                    ref={importInputRef}
-                    type="file"
-                    accept="application/json"
-                    className="hidden"
-                    onChange={importLevel}
-                  />
-                </div>
-              )}
-            </div>
-          </div>
-
-          {levelData?.description && (
-            <div className="mt-6 flex items-center gap-3 rounded-2xl bg-gray-100 px-4 py-3 text-gray-700">
+        {levelData?.description && (
+          <div className="rounded-2xl bg-white/95 p-5 shadow-xl backdrop-blur">
+            <div className="flex items-center gap-3 rounded-2xl bg-gray-100 px-4 py-3 text-gray-700">
               <Info className="h-5 w-5 text-purple-500" />
               <span>{levelData.description}</span>
             </div>
-          )}
-        </div>
+          </div>
+        )}
 
         <div className="rounded-2xl bg-white/95 p-5 shadow-xl backdrop-blur">
           <div className="flex items-center gap-3 text-lg font-bold text-gray-800">
-            <Trophy className="h-7 w-7 text-yellow-500" /> Progreso
-            <span className="ml-auto text-sm font-semibold text-gray-600">Precisión: {accuracy}%</span>
+            <Trophy className="h-7 w-7 text-yellow-500" /> {texts.scoreboard.title}
+            <span className="ml-auto text-sm font-semibold text-gray-600">{texts.scoreboard.accuracy}: {accuracy}%</span>
           </div>
           <div className="mt-4 h-5 w-full rounded-full bg-gray-200">
             <div
@@ -721,224 +637,71 @@ const App = () => {
         {!gameStarted && !showVictory && !showTimeoutModal && totalDifferences > 0 && (
           <div className="rounded-3xl bg-white/95 p-10 text-center shadow-2xl backdrop-blur">
             <Trophy className="mx-auto mb-4 h-16 w-16 text-yellow-500" />
-            <h2 className="text-3xl font-bold text-gray-800">¿Listo para jugar?</h2>
-            <p className="mt-2 text-gray-600">Presiona el botón para iniciar el reto de {totalDifferences} diferencias.</p>
+            <h2 className="text-3xl font-bold text-gray-800">{texts.callToAction.title}</h2>
+            <p className="mt-2 text-gray-600">
+              {texts.callToAction.description} {totalDifferences > 0 ? `(${totalDifferences} diferencias).` : ''}
+            </p>
             <button
               onClick={startGame}
               className="mt-6 rounded-xl bg-gradient-to-r from-purple-600 to-pink-600 px-8 py-4 text-xl font-semibold text-white shadow-lg transition hover:scale-105"
             >
-              ¡Comenzar!
+              {texts.callToAction.button}
             </button>
           </div>
         )}
 
         <div className="grid gap-6 lg:grid-cols-2">
-          <div className="rounded-3xl bg-white/95 p-5 shadow-2xl backdrop-blur">
-            <h2 className="mb-4 text-center text-2xl font-bold text-gray-800">🖼️ Imagen Original</h2>
-            <div ref={originalContainerRef} className="relative cursor-crosshair overflow-hidden rounded-2xl border-4 border-gray-200 shadow-2xl">
-              <img
-                src={levelData?.originalImage ?? '/images/original.png'}
-                alt="Imagen Original"
-                className="w-full select-none"
-                draggable="false"
-                onClick={(event) => (isDev && editMode) ? handleEditClick(event, 'original') : handleImageClick(event, 'original')}
-                onError={(event) => {
-                  event.currentTarget.style.display = 'none';
-                  if (event.currentTarget.nextSibling) event.currentTarget.nextSibling.style.display = 'flex';
-                }}
-              />
-              <div className="hidden h-96 w-full flex-col items-center justify-center bg-gradient-to-br from-purple-100 to-pink-100 p-8 text-center text-gray-600">
-                <p className="text-xl font-semibold">Imagen no disponible</p>
-                <p className="mt-2 text-sm">Asegúrate de que la ruta "originalImage" apunte a un archivo válido.</p>
-              </div>
-              {renderEditOverlays('original')}
-              {renderHitMarkers('original')}
-              {renderWrongMarker('original')}
-              {renderEditMarkers('original')}
-            </div>
-          </div>
+          <ImageCanvas
+            title={texts.canvas.original.title}
+            containerRef={originalContainerRef}
+            imageSrc={levelData?.originalImage ?? '/images/original.png'}
+            fallbackTitle={texts.canvas.fallbackTitle}
+            fallbackDescription={texts.canvas.original.fallbackDescription}
+            borderClass="border-gray-200"
+            isDevMode={isDevMode}
+            editMode={editMode}
+            onPlayClick={(event) => handleImageClick(event, 'original')}
+            onEditClick={(event) => handleEditClick(event, 'original')}
+            overlays={renderEditOverlays('original')}
+            hitMarkers={renderHitMarkers('original')}
+            wrongMarker={renderWrongMarker('original')}
+            editMarkers={renderEditMarkers('original')}
+          />
 
-          <div className="rounded-3xl bg-white/95 p-5 shadow-2xl backdrop-blur">
-            <h2 className="mb-4 text-center text-2xl font-bold text-gray-800">🔍 Imagen Modificada</h2>
-            <div ref={modifiedContainerRef} className="relative cursor-crosshair overflow-hidden rounded-2xl border-4 border-purple-300 shadow-2xl">
-              <img
-                src={levelData?.modifiedImage ?? '/images/modified.png'}
-                alt="Imagen Modificada"
-                className="w-full select-none"
-                draggable="false"
-                onClick={(event) => (isDev && editMode) ? handleEditClick(event, 'modified') : handleImageClick(event, 'modified')}
-                onError={(event) => {
-                  event.currentTarget.style.display = 'none';
-                  if (event.currentTarget.nextSibling) event.currentTarget.nextSibling.style.display = 'flex';
-                }}
-              />
-              <div className="hidden h-96 w-full flex-col items-center justify-center bg-gradient-to-br from-blue-100 to-purple-100 p-8 text-center text-gray-600">
-                <p className="text-xl font-semibold">Imagen no disponible</p>
-                <p className="mt-2 text-sm">Asegúrate de que la ruta "modifiedImage" apunte a un archivo válido.</p>
-              </div>
-              {renderEditOverlays('modified')}
-              {renderHitMarkers('modified')}
-              {renderWrongMarker('modified')}
-              {renderEditMarkers('modified')}
-            </div>
-          </div>
+          <ImageCanvas
+            title={texts.canvas.modified.title}
+            containerRef={modifiedContainerRef}
+            imageSrc={levelData?.modifiedImage ?? '/images/modified.png'}
+            fallbackTitle={texts.canvas.fallbackTitle}
+            fallbackDescription={texts.canvas.modified.fallbackDescription}
+            borderClass="border-purple-300"
+            isDevMode={isDevMode}
+            editMode={editMode}
+            onPlayClick={(event) => handleImageClick(event, 'modified')}
+            onEditClick={(event) => handleEditClick(event, 'modified')}
+            overlays={renderEditOverlays('modified')}
+            hitMarkers={renderHitMarkers('modified')}
+            wrongMarker={renderWrongMarker('modified')}
+            editMarkers={renderEditMarkers('modified')}
+          />
         </div>
 
-        <div className="rounded-2xl bg-white/95 p-5 shadow-xl backdrop-blur">
-          <div className="mb-4 flex items-center gap-3 text-lg font-bold text-gray-800">
-            <Zap className="h-6 w-6 text-purple-500" /> Pistas de las diferencias
-          </div>
-          <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
-            {differences.map(diff => {
-              const isFound = foundDifferences.includes(diff.id);
-              const isSelected = selectedDifferenceId === diff.id;
-              return (
-                <div
-                  key={diff.id}
-                  className={`rounded-2xl border-2 p-4 transition ${isFound ? 'border-emerald-400 bg-emerald-50' : 'border-gray-200 bg-gray-50'} ${isSelected ? 'ring-2 ring-orange-400' : ''}`}
-                  onClick={() => setSelectedDifferenceId(diff.id)}
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm font-semibold text-gray-700">
-                      {isFound ? '✓' : '?'} {diff.name ?? `Diferencia ${diff.id}`}
-                    </span>
-                    <span className="text-xs uppercase tracking-wide text-gray-400">{diff.type ?? 'circle'}</span>
-                  </div>
-                  <div className="mt-2 text-xs text-gray-500">{hintShapeSummary(diff)}</div>
-
-                  {isDev && editMode && (
-                    <div className="mt-3 space-y-2 text-xs text-gray-600">
-                      <div className="flex items-center gap-2">
-                        <label className="w-16">Forma</label>
-                        <select
-                          className="w-full rounded-lg border border-gray-200 px-2 py-1"
-                          value={diff.type ?? 'circle'}
-                          onChange={(event) => changeShapeType(diff.id, event.target.value)}
-                          disabled={diff.type === 'polygon'}
-                        >
-                          <option value="circle">Círculo</option>
-                          <option value="rect">Rectángulo</option>
-                          {diff.type === 'polygon' && <option value="polygon">Polígono</option>}
-                        </select>
-                      </div>
-                      {diff.type === 'polygon' && (
-                        <p className="rounded-lg bg-amber-50 p-2 text-[11px] text-amber-700">
-                          Esta diferencia es un polígono personalizado. Ajusta sus puntos en el JSON si necesitas modificar la forma.
-                        </p>
-                      )}
-                      <div className="flex items-center gap-2">
-                        <label className="w-10">X</label>
-                        <input
-                          type="number"
-                          min="0"
-                          max="100"
-                          step="0.1"
-                          className="w-full rounded-lg border border-gray-200 px-2 py-1"
-                          value={diff.x}
-                          onChange={(event) => handleSizeInput(diff.id, 'x', event.target.value)}
-                        />
-                        <label className="w-10">Y</label>
-                        <input
-                          type="number"
-                          min="0"
-                          max="100"
-                          step="0.1"
-                          className="w-full rounded-lg border border-gray-200 px-2 py-1"
-                          value={diff.y}
-                          onChange={(event) => handleSizeInput(diff.id, 'y', event.target.value)}
-                        />
-                      </div>
-                      {diff.type === 'circle' && (
-                        <div className="flex items-center gap-2">
-                          <label className="w-16">Radio</label>
-                          <input
-                            type="number"
-                            min="1"
-                            max="50"
-                            step="0.1"
-                            className="w-full rounded-lg border border-gray-200 px-2 py-1"
-                            value={diff.radius ?? 8}
-                            onChange={(event) => handleSizeInput(diff.id, 'radius', event.target.value)}
-                          />
-                          <div className="flex items-center gap-1">
-                            <button className="rounded-lg bg-gray-100 px-2 py-1" onClick={() => adjustRadius(diff.id, -0.5)}>-</button>
-                            <button className="rounded-lg bg-gray-100 px-2 py-1" onClick={() => adjustRadius(diff.id, 0.5)}>+</button>
-                          </div>
-                        </div>
-                      )}
-                      {diff.type === 'rect' && (
-                        <div className="space-y-2">
-                          <div className="flex items-center gap-2">
-                            <label className="w-16">Ancho</label>
-                            <div className="flex items-center gap-1">
-                              <button className="rounded-lg bg-gray-100 px-2 py-1" onClick={() => adjustDimension(diff.id, 'width', -0.5)}>-</button>
-                              <input
-                                type="number"
-                                min="2"
-                                max="100"
-                                step="0.1"
-                                className="w-20 rounded-lg border border-gray-200 px-2 py-1"
-                                value={diff.width ?? 12}
-                                onChange={(event) => handleSizeInput(diff.id, 'width', event.target.value)}
-                              />
-                              <button className="rounded-lg bg-gray-100 px-2 py-1" onClick={() => adjustDimension(diff.id, 'width', 0.5)}>+</button>
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <label className="w-16">Alto</label>
-                            <div className="flex items-center gap-1">
-                              <button className="rounded-lg bg-gray-100 px-2 py-1" onClick={() => adjustDimension(diff.id, 'height', -0.5)}>-</button>
-                              <input
-                                type="number"
-                                min="2"
-                                max="100"
-                                step="0.1"
-                                className="w-20 rounded-lg border border-gray-200 px-2 py-1"
-                                value={diff.height ?? 12}
-                                onChange={(event) => handleSizeInput(diff.id, 'height', event.target.value)}
-                              />
-                              <button className="rounded-lg bg-gray-100 px-2 py-1" onClick={() => adjustDimension(diff.id, 'height', 0.5)}>+</button>
-                            </div>
-                          </div>
-                        </div>
-                      )}
-                      <div className="flex items-center gap-2">
-                        <label className="w-16">Tol.</label>
-                        <input
-                          type="number"
-                          min="0"
-                          max="50"
-                          step="0.1"
-                          className="w-full rounded-lg border border-gray-200 px-2 py-1"
-                          value={diff.tolerance ?? 0}
-                          onChange={(event) => handleSizeInput(diff.id, 'tolerance', event.target.value)}
-                        />
-                        <div className="flex items-center gap-1">
-                          <button className="rounded-lg bg-gray-100 px-2 py-1" onClick={() => adjustTolerance(diff.id, -0.5)}>-</button>
-                          <button className="rounded-lg bg-gray-100 px-2 py-1" onClick={() => adjustTolerance(diff.id, 0.5)}>+</button>
-                        </div>
-                      </div>
-                      <div className="flex items-center justify-between pt-2">
-                        <button
-                          onClick={() => removeDifference(diff.id)}
-                          className="rounded-lg bg-rose-100 px-3 py-1 font-semibold text-rose-600 hover:bg-rose-200"
-                        >
-                          Eliminar
-                        </button>
-                        <button
-                          onClick={() => navigator.clipboard?.writeText(JSON.stringify(diff, null, 2))}
-                          className="rounded-lg bg-gray-100 px-3 py-1 text-gray-600 hover:bg-gray-200"
-                        >
-                          Copiar JSON
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </div>
+        <DifferencesPanel
+          differences={differences}
+          foundDifferences={foundDifferences}
+          selectedDifferenceId={selectedDifferenceId}
+          onSelectDifference={setSelectedDifferenceId}
+          hintShapeSummary={hintShapeSummary}
+          isDevMode={isDevMode}
+          editMode={editMode}
+          onChangeShape={changeShapeType}
+          onSizeInput={handleSizeInput}
+          onAdjustRadius={adjustRadius}
+          onAdjustDimension={adjustDimension}
+          onAdjustTolerance={adjustTolerance}
+          onRemoveDifference={removeDifference}
+          onCopyDifference={handleCopyDifference}
+        />
       </div>
     </div>
   );

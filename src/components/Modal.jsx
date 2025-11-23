@@ -1,6 +1,7 @@
 import React from 'react';
+import PropTypes from 'prop-types';
 
-const Modal = ({ title, description, children, actions, onClose, tone = 'default' }) => (
+const Modal = ({ title, description, children, actions, onClose, tone }) => (
   <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
     <div className="bg-white rounded-3xl shadow-2xl w-full max-w-xl overflow-hidden">
       <div className={`px-8 pt-8 pb-4 ${tone === 'success' ? 'bg-emerald-50' : tone === 'danger' ? 'bg-rose-50' : 'bg-white'}`}>
@@ -40,5 +41,26 @@ const Modal = ({ title, description, children, actions, onClose, tone = 'default
     </div>
   </div>
 );
+
+Modal.propTypes = {
+  title: PropTypes.string.isRequired,
+  description: PropTypes.node,
+  children: PropTypes.node,
+  actions: PropTypes.arrayOf(PropTypes.shape({
+    label: PropTypes.string.isRequired,
+    variant: PropTypes.oneOf(['primary', 'secondary', 'ghost']),
+    onClick: PropTypes.func,
+  })),
+  onClose: PropTypes.func,
+  tone: PropTypes.oneOf(['default', 'success', 'danger']),
+};
+
+Modal.defaultProps = {
+  description: null,
+  children: null,
+  actions: null,
+  onClose: null,
+  tone: 'default',
+};
 
 export default Modal;

@@ -1,4 +1,5 @@
 import React from 'react';
+import PropTypes from 'prop-types';
 
 export const WrongMarker = ({ x, y }) => (
   <div
@@ -18,6 +19,11 @@ export const WrongMarker = ({ x, y }) => (
   </div>
 );
 
+WrongMarker.propTypes = {
+  x: PropTypes.number.isRequired,
+  y: PropTypes.number.isRequired,
+};
+
 export const HitMarker = ({ x, y }) => (
   <div
     className="absolute pointer-events-none"
@@ -35,5 +41,10 @@ export const HitMarker = ({ x, y }) => (
     </span>
   </div>
 );
+
+HitMarker.propTypes = {
+  x: PropTypes.number.isRequired,
+  y: PropTypes.number.isRequired,
+};
 
 export default { WrongMarker, HitMarker };

@@ -1,6 +1,14 @@
-import { defineConfig } from 'vite';
+import { defineConfig } from 'vitest/config';
+import react from '@vitejs/plugin-react';
 
-// Vite configuration (generic). No GitHub Pages-specific settings.
 export default defineConfig({
-  // Add custom config here if needed
+  plugins: [react()],
+  test: {
+    environment: 'jsdom',
+    setupFiles: './src/setupTests.js',
+    globals: true,
+    coverage: {
+      provider: 'v8'
+    }
+  }
 });
