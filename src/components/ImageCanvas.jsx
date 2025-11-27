@@ -14,9 +14,6 @@ const ImageCanvas = ({
   onPlayClick,
   onEditClick,
   overlays = null,
-  hitMarkers = null,
-  wrongMarker = null,
-  editMarkers = null,
 }) => {
   const handleClick = (event) => {
     if (isDevMode && editMode) {
@@ -60,13 +57,11 @@ const ImageCanvas = ({
           <p className="mt-2 text-sm">{fallbackDescription}</p>
         </div>
         {overlays}
-        {hitMarkers}
-        {wrongMarker}
-        {editMarkers}
       </div>
     </div>
   );
 };
+
 
 ImageCanvas.propTypes = {
   title: PropTypes.string.isRequired,
@@ -80,9 +75,7 @@ ImageCanvas.propTypes = {
   onPlayClick: PropTypes.func,
   onEditClick: PropTypes.func,
   overlays: PropTypes.node,
-  hitMarkers: PropTypes.node,
-  wrongMarker: PropTypes.node,
-  editMarkers: PropTypes.node,
 };
 
-export default ImageCanvas;
+export default React.memo(ImageCanvas);
+

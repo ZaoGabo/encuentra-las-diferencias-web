@@ -26,7 +26,11 @@
     "eslint-plugin-testing-library": "^7.13.5",
     "eslint-plugin-vitest": "^0.5.4",
     "jsdom": "^24.0.0",
+    "sharp": "^0.34.5",
+    "terser": "^5.44.1",
     "vite": "^5.0.0",
+    "vite-plugin-compression": "^0.5.1",
+    "vite-plugin-image-optimizer": "^2.0.3",
     "vitest": "^1.2.2"
   }
 }

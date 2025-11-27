@@ -132,4 +132,5 @@ GameHeader.propTypes = {
   onImportLevel: PropTypes.func,
 };
 
-export default GameHeader;
+export default React.memo(GameHeader);
+

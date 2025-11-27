@@ -1,4 +1,5 @@
 import { useCallback, useMemo, useState } from 'react';
+import { SCORING_DEFAULTS } from '../config/gameConfig';
 
 const distance = (x1, y1, x2, y2) => Math.hypot(x1 - x2, y1 - y2);
 
@@ -48,9 +49,7 @@ export const useDifferences = (differences = [], scoringRules = {}) => {
   const [wrongClick, setWrongClick] = useState(null);
 
   const rules = useMemo(() => ({
-    pointsPerHit: 200,
-    penaltyPerMiss: 50,
-    bonusPerSecond: 10,
+    ...SCORING_DEFAULTS,
     ...scoringRules,
   }), [scoringRules]);
 

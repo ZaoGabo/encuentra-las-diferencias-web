@@ -63,4 +63,5 @@ Modal.defaultProps = {
   tone: 'default',
 };
 
-export default Modal;
+export default React.memo(Modal);
+
